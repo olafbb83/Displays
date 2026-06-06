@@ -18,13 +18,22 @@ float angle = 0;
 int trailX[TRAIL_LEN];
 int trailY[TRAIL_LEN];
 
-void drawCentered(const char* text, uint16_t color) {
+void drawTwoLineCentered(const char* line1, const char* line2, uint16_t color) {
   int16_t x1, y1;
-  uint16_t w, h;
+  uint16_t w1, h1, w2, h2;
   tft.setTextColor(color);
-  tft.getTextBounds(text, 0, 0, &x1, &y1, &w, &h);
-  tft.setCursor((240 - w) / 2, (240 - h) / 2);
-  tft.print(text);
+
+  tft.getTextBounds(line1, 0, 0, &x1, &y1, &w1, &h1);
+  tft.getTextBounds(line2, 0, 0, &x1, &y1, &w2, &h2);
+
+  int gap = 6;
+  int totalH = h1 + gap + h2;
+  int startY = (240 - totalH) / 2;
+
+  tft.setCursor((240 - w1) / 2, startY);
+  tft.print(line1);
+  tft.setCursor((240 - w2) / 2, startY + h1 + gap);
+  tft.print(line2);
 }
 
 void setup() {
@@ -38,7 +47,7 @@ void setup() {
   }
 
   tft.setTextSize(2);
-  drawCentered("I'm the cometa", GC9A01A_WHITE);
+  drawTwoLineCentered("BurCafe", "'CometA'", GC9A01A_WHITE);
 }
 
 void loop() {
