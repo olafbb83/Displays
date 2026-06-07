@@ -32,7 +32,7 @@ GPIO11/12 are the ESP32-S3 default SPI2 (FSPI) pins, enabling hardware SPI autom
 
 ## Sketch conventions
 
-- Use `millis()` for timing, not `delay()`, so multiple tasks can run concurrently
+- Use `millis()` for timing when the sketch does more than one thing concurrently; `delay()` is acceptable for single-task animations
 - Center text with `getTextBounds()` to measure before placing — the default font metrics are not perfectly symmetric
 - Global variables hold animation state (position, angle, trail history) that persists across `loop()` calls
 - `setup()` — one-time init and static drawing; `loop()` — animation and input polling

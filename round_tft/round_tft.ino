@@ -1,94 +1,147 @@
 #include <SPI.h>
+#include <Wire.h>
 #include <Adafruit_GC9A01A.h>
-#include <math.h>
+#include <Adafruit_BME280.h>
 
-#define TFT_CS    10
-#define TFT_DC     9
-#define TFT_RST    8
-
-#define CENTER_X  120
-#define CENTER_Y  120
-#define TRAIL_LEN  12
+#define TFT_CS     10
+#define TFT_DC      9
+#define TFT_RST     8
+#define BME_SDA     4
+#define BME_SCL     5
+#define BUTTON_PIN  6
 
 Adafruit_GC9A01A tft(TFT_CS, TFT_DC, TFT_RST);
+Adafruit_BME280 bme;
 
-struct Comet {
-  float angle;
-  float speed;
-  int orbitRadius;
-  int dotRadius;
-  uint8_t r, g, b;
-  int trailX[TRAIL_LEN];
-  int trailY[TRAIL_LEN];
-};
+enum Screen { MAIN, TEMP_DETAIL, HUMID_DETAIL, PRESS_DETAIL };
+Screen currentScreen = MAIN;
 
-Comet comets[2];
-
-void initComet(Comet &c, float angle, float speed, int orbitR, int dotR, uint8_t r, uint8_t g, uint8_t b) {
-  c.angle = angle;
-  c.speed = speed;
-  c.orbitRadius = orbitR;
-  c.dotRadius = dotR;
-  c.r = r;  c.g = g;  c.b = b;
-  for (int i = 0; i < TRAIL_LEN; i++) {
-    c.trailX[i] = CENTER_X + orbitR;
-    c.trailY[i] = CENTER_Y;
-  }
-}
-
-void updateComet(Comet &c) {
-  float rad = c.angle * PI / 180.0;
-  int x = CENTER_X + c.orbitRadius * cos(rad);
-  int y = CENTER_Y + c.orbitRadius * sin(rad);
-
-  tft.fillCircle(c.trailX[TRAIL_LEN - 1], c.trailY[TRAIL_LEN - 1], c.dotRadius + 1, GC9A01A_BLACK);
-
-  for (int i = TRAIL_LEN - 1; i > 0; i--) {
-    c.trailX[i] = c.trailX[i - 1];
-    c.trailY[i] = c.trailY[i - 1];
-  }
-  c.trailX[0] = x;
-  c.trailY[0] = y;
-
-  for (int i = TRAIL_LEN - 1; i >= 0; i--) {
-    float fade = (float)(TRAIL_LEN - i) / TRAIL_LEN;
-    uint16_t color = tft.color565(c.r * fade, c.g * fade, c.b * fade);
-    tft.fillCircle(c.trailX[i], c.trailY[i], c.dotRadius, color);
-  }
-
-  c.angle += c.speed;
-  if (c.angle >= 360) c.angle = 0;
-}
-
-void drawTwoLineCentered(const char* line1, const char* line2, uint16_t color) {
+void drawCentered(const char* text, int y, uint8_t size, uint16_t color) {
   int16_t x1, y1;
-  uint16_t w1, h1, w2, h2;
+  uint16_t w, h;
+  tft.setTextSize(size);
   tft.setTextColor(color);
-  tft.getTextBounds(line1, 0, 0, &x1, &y1, &w1, &h1);
-  tft.getTextBounds(line2, 0, 0, &x1, &y1, &w2, &h2);
-  int gap = 6;
-  int totalH = h1 + gap + h2;
-  int startY = (240 - totalH) / 2;
-  tft.setCursor((240 - w1) / 2, startY);
-  tft.print(line1);
-  tft.setCursor((240 - w2) / 2, startY + h1 + gap);
-  tft.print(line2);
+  tft.getTextBounds(text, 0, 0, &x1, &y1, &w, &h);
+  tft.setCursor((240 - w) / 2, y);
+  tft.print(text);
+}
+
+void drawMain() {
+  tft.fillScreen(GC9A01A_BLACK);
+  char buf[20];
+  uint16_t grey = tft.color565(130, 130, 130);
+
+  drawCentered("TEMPERATURE",   55, 1, grey);
+  sprintf(buf, "%.1f C", bme.readTemperature());
+  drawCentered(buf,             68, 2, tft.color565(255, 100, 100));
+
+  drawCentered("HUMIDITY",     105, 1, grey);
+  sprintf(buf, "%.1f %%", bme.readHumidity());
+  drawCentered(buf,            118, 2, tft.color565(100, 150, 255));
+
+  drawCentered("PRESSURE",     153, 1, grey);
+  sprintf(buf, "%.0f hPa", bme.readPressure() / 100.0);
+  drawCentered(buf,            166, 2, tft.color565(100, 220, 100));
+}
+
+void drawDetail(const char* label, float value, const char* unit, uint16_t color) {
+  tft.fillScreen(GC9A01A_BLACK);
+  char buf[20];
+  uint16_t grey = tft.color565(130, 130, 130);
+
+  drawCentered(label,       70, 1, grey);
+  sprintf(buf, "%.1f", value);
+  drawCentered(buf,         95, 4, color);
+  drawCentered(unit,       148, 2, grey);
+  drawCentered("[ graph ]",175, 1, tft.color565(60, 60, 60));
+}
+
+void refreshValues() {
+  char buf[20];
+  switch (currentScreen) {
+    case MAIN:
+      tft.fillRect(0, 65, 240, 20, GC9A01A_BLACK);
+      sprintf(buf, "%.1f C", bme.readTemperature());
+      drawCentered(buf, 68, 2, tft.color565(255, 100, 100));
+
+      tft.fillRect(0, 115, 240, 20, GC9A01A_BLACK);
+      sprintf(buf, "%.1f %%", bme.readHumidity());
+      drawCentered(buf, 118, 2, tft.color565(100, 150, 255));
+
+      tft.fillRect(0, 163, 240, 20, GC9A01A_BLACK);
+      sprintf(buf, "%.0f hPa", bme.readPressure() / 100.0);
+      drawCentered(buf, 166, 2, tft.color565(100, 220, 100));
+      break;
+
+    case TEMP_DETAIL:
+      tft.fillRect(0, 92, 240, 36, GC9A01A_BLACK);
+      sprintf(buf, "%.1f", bme.readTemperature());
+      drawCentered(buf, 95, 4, tft.color565(255, 100, 100));
+      break;
+
+    case HUMID_DETAIL:
+      tft.fillRect(0, 92, 240, 36, GC9A01A_BLACK);
+      sprintf(buf, "%.1f", bme.readHumidity());
+      drawCentered(buf, 95, 4, tft.color565(100, 150, 255));
+      break;
+
+    case PRESS_DETAIL:
+      tft.fillRect(0, 92, 240, 36, GC9A01A_BLACK);
+      sprintf(buf, "%.0f", bme.readPressure() / 100.0);
+      drawCentered(buf, 95, 4, tft.color565(100, 220, 100));
+      break;
+  }
+}
+
+void drawScreen() {
+  switch (currentScreen) {
+    case MAIN:        drawMain();  break;
+    case TEMP_DETAIL: drawDetail("TEMPERATURE", bme.readTemperature(),      "C",   tft.color565(255, 100, 100)); break;
+    case HUMID_DETAIL:drawDetail("HUMIDITY",    bme.readHumidity(),         "%",   tft.color565(100, 150, 255)); break;
+    case PRESS_DETAIL:drawDetail("PRESSURE",    bme.readPressure() / 100.0, "hPa", tft.color565(100, 220, 100)); break;
+  }
+}
+
+void checkButton() {
+  static bool lastState = HIGH;
+  static unsigned long lastPress = 0;
+
+  bool state = digitalRead(BUTTON_PIN);
+  unsigned long now = millis();
+
+  if (state == LOW && lastState == HIGH && now - lastPress > 200) {
+    lastPress = now;
+    currentScreen = (Screen)((currentScreen + 1) % 4);
+    drawScreen();
+  }
+
+  lastState = state;
 }
 
 void setup() {
   tft.begin();
   tft.setRotation(2);
-  tft.fillScreen(GC9A01A_BLACK);
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
 
-  initComet(comets[0],   0, 3, 90, 6, 255,   0,   0);  // red, outer orbit
-  initComet(comets[1], 180, 2, 65, 4,   0,   0, 255);  // blue, inner orbit
+  Wire.begin(BME_SDA, BME_SCL);
+  if (!bme.begin(0x76)) {
+    tft.fillScreen(GC9A01A_BLACK);
+    drawCentered("BME280",     100, 2, GC9A01A_RED);
+    drawCentered("not found!", 125, 2, GC9A01A_RED);
+    while (true);
+  }
 
-  tft.setTextSize(2);
-  drawTwoLineCentered("BurCafe", "'CometA'", GC9A01A_WHITE);
+  drawScreen();
 }
 
 void loop() {
-  updateComet(comets[0]);
-  updateComet(comets[1]);
-  delay(20);
+  static unsigned long lastUpdate = 0;
+  unsigned long now = millis();
+
+  checkButton();
+
+  if (now - lastUpdate >= 2000) {
+    lastUpdate = now;
+    refreshValues();
+  }
 }
